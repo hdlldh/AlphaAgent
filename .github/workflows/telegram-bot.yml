@@ -1,0 +1,111 @@
+name: Telegram Bot
+
+# Run continuously or on manual trigger
+on:
+  # Allow manual triggering for testing
+  workflow_dispatch:
+    inputs:
+      restart:
+        description: 'Restart bot'
+        required: false
+        type: boolean
+        default: false
+
+  # Automatically start on push to main (optional)
+  # Uncomment to enable automatic deployment
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - 'src/stock_analyzer/bot.py'
+  #     - 'src/scripts/run_bot.py'
+  #     - '.github/workflows/telegram-bot.yml'
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          uv pip install -e . --system
+
+      - name: Fetch database from repository
+        run: |
+          # Database should be committed to repository
+          # or fetched from cloud storage
+          mkdir -p data
+          if [ ! -f data/stock_analyzer.db ]; then
+            echo "Database not found, initializing new one..."
+            python -c "from stock_analyzer.storage import Storage; s = Storage('data/stock_analyzer.db'); s.init_database()"
+          fi
+
+      - name: Run Telegram bot
+        env:
+          # LLM Provider Configuration
+          LLM_PROVIDER: ${{ secrets.LLM_PROVIDER || 'anthropic' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+          # Stock Data API Keys
+          STOCK_ANALYZER_STOCK_API_KEY: ${{ secrets.ALPHA_VANTAGE_KEY }}
+
+          # Telegram Bot Token (REQUIRED)
+          STOCK_ANALYZER_TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+
+          # Database path
+          STOCK_ANALYZER_DB_PATH: ./data/stock_analyzer.db
+        run: |
+          # Run bot with timeout of 1 hour (GitHub Actions free tier limit: 6 hours)
+          # For continuous operation, consider using a VPS or cloud service
+          timeout 3600 python src/scripts/run_bot.py || true
+
+      - name: Commit database changes
+        if: always()
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+          # Add database if it changed
+          git add data/stock_analyzer.db
+
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: update bot database [skip ci]"
+            git push
+          fi
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Telegram bot failed"
+          # Optional: Send notification via Telegram
+          # curl -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+          #   -d "chat_id=${ADMIN_CHAT_ID}" \
+          #   -d "text=❌ Telegram bot failed. Check GitHub Actions logs."
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bot-logs
+          path: |
+            *.log
+            data/stock_analyzer.db
+          retention-days: 7

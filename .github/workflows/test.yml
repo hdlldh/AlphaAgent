@@ -1,0 +1,120 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.11", "3.12"]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install uv
+      shell: bash
+      run: |
+        if [ "$RUNNER_OS" == "Windows" ]; then
+          powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        else
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        fi
+
+    - name: Install dependencies
+      run: |
+        uv pip install --system -e ".[dev]"
+
+    - name: Run tests with coverage
+      env:
+        # Mock API keys for testing
+        ANTHROPIC_API_KEY: "test-key-anthropic"
+        OPENAI_API_KEY: "test-key-openai"
+        GEMINI_API_KEY: "test-key-gemini"
+        STOCK_ANALYZER_TELEGRAM_TOKEN: "123456:ABC-DEF-test-token"
+        STOCK_ANALYZER_DB_PATH: ":memory:"
+      run: |
+        uv run pytest --cov=stock_analyzer --cov-report=xml --cov-report=term-missing --cov-report=html -v
+
+    - name: Upload coverage to Codecov
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+    - name: Upload coverage HTML report
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: htmlcov/
+
+    - name: Check coverage threshold
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+      run: |
+        uv run pytest --cov=stock_analyzer --cov-fail-under=80 --cov-report=term-missing
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+    - name: Install dependencies
+      run: |
+        uv pip install --system -e ".[dev]"
+
+    - name: Check code formatting (if black is installed)
+      run: |
+        if uv pip list | grep -q black; then
+          uv run black --check src/ tests/
+        else
+          echo "Black not installed, skipping format check"
+        fi
+      continue-on-error: true
+
+    - name: Check import sorting (if isort is installed)
+      run: |
+        if uv pip list | grep -q isort; then
+          uv run isort --check-only src/ tests/
+        else
+          echo "isort not installed, skipping import check"
+        fi
+      continue-on-error: true
+
+    - name: Type check (if mypy is installed)
+      run: |
+        if uv pip list | grep -q mypy; then
+          uv run mypy src/
+        else
+          echo "mypy not installed, skipping type check"
+        fi
+      continue-on-error: true

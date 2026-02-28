@@ -18,11 +18,28 @@ class TestConfigFromEnv:
 
     def test_from_env_defaults(self, monkeypatch):
         """Test loading config with defaults."""
+        # Ensure ambient shell env doesn't override defaults.
+        monkeypatch.delenv("STOCK_ANALYZER_LLM_PROVIDER", raising=False)
+        monkeypatch.delenv("STOCK_ANALYZER_LLM_MODEL", raising=False)
+        monkeypatch.delenv("STOCK_ANALYZER_LLM_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.delenv("STOCK_ANALYZER_STOCK_API_KEY", raising=False)
+        monkeypatch.delenv("STOCK_ANALYZER_DB_PATH", raising=False)
+        monkeypatch.delenv("STOCK_ANALYZER_USER_LIMIT", raising=False)
+        monkeypatch.delenv("STOCK_ANALYZER_SYSTEM_LIMIT", raising=False)
+        monkeypatch.delenv("STOCK_ANALYZER_ANALYSIS_TIMEOUT", raising=False)
+        monkeypatch.delenv("STOCK_ANALYZER_LOG_LEVEL", raising=False)
+        monkeypatch.delenv("STOCK_ANALYZER_MOCK_MODE", raising=False)
+        monkeypatch.delenv("STOCK_ANALYZER_RETRY_MAX", raising=False)
+        monkeypatch.delenv("STOCK_ANALYZER_DEBUG", raising=False)
+
         # Set minimal required env vars
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
         monkeypatch.setenv("STOCK_ANALYZER_TELEGRAM_TOKEN", "test-token")
 
-        config = Config.from_env()
+        with patch("stock_analyzer.config.load_dotenv"):
+            config = Config.from_env()
 
         assert config.llm_provider == "anthropic"
         assert config.llm_api_key == "test-key"

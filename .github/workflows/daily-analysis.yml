@@ -19,6 +19,8 @@ on:
 jobs:
   analyze:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Allow pushing commits
 
     steps:
       - name: Checkout code
@@ -26,6 +28,9 @@ jobs:
         with:
           # Fetch the database file
           fetch-depth: 1
+          # Persist credentials for pushing
+          persist-credentials: true
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v5

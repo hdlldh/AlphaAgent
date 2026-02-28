@@ -1252,6 +1252,11 @@ For more information, see: https://github.com/AlphaAgent
     # analyze command
     analyze_parser = subparsers.add_parser("analyze", help="Analyze a stock")
     analyze_parser.add_argument("symbol", help="Stock symbol (e.g., AAPL)")
+    analyze_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force re-analysis even if today's cached result exists",
+    )
 
     # analyze-batch command
     batch_parser = subparsers.add_parser("analyze-batch", help="Analyze multiple stocks")
@@ -1313,7 +1318,9 @@ For more information, see: https://github.com/AlphaAgent
 
         elif args.command == "analyze":
             import asyncio
-            return asyncio.run(cli.analyze(args.symbol, json_output=args.json))
+            return asyncio.run(
+                cli.analyze(args.symbol, force=args.force, json_output=args.json)
+            )
 
         elif args.command == "analyze-batch":
             import asyncio

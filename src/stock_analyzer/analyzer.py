@@ -142,7 +142,12 @@ class Analyzer:
                 logger.info(f"Returning cached analysis for {symbol} from {analysis_date}")
                 insights = self.storage.get_insights(symbol, limit=1)
                 if insights:
-                    return insights[0]
+                    cached_insight = insights[0]
+                    if not self._is_stale_cached_insight(cached_insight):
+                        return cached_insight
+                    logger.info(
+                        f"Cached analysis for {symbol} appears stale from legacy parsing; re-analyzing"
+                    )
 
         try:
             # Fetch stock data
@@ -370,34 +375,26 @@ class Analyzer:
 
     def _extract_summary_and_trend(self, text: str) -> tuple[str, str]:
         """Extract summary and trend analysis sections."""
-        # Extract Summary - match text after "**Summary:**" header until next section
-        summary_match = re.search(
-            r'\*\*Summary:?\*\*[ \t]*\n(.+?)(?=\n[ \t]*\*\*|\Z)',
-            text,
-            re.DOTALL | re.IGNORECASE
-        )
-        summary = summary_match.group(1).strip() if summary_match else text[:200]
+        summary = self._extract_section_text(text, "Summary")
+        trend_analysis = self._extract_section_text(text, "Trend Analysis")
 
-        # Extract Trend Analysis - match text after "**Trend Analysis:**" header until next section
-        trend_match = re.search(
-            r'\*\*Trend Analysis:?\*\*[ \t]*\n(.+?)(?=\n[ \t]*\*\*|\Z)',
-            text,
-            re.DOTALL | re.IGNORECASE
-        )
-        trend_analysis = trend_match.group(1).strip() if trend_match else ""
+        # Fallback: keep full text (without leading markdown header) instead of truncating.
+        if not summary:
+            summary = re.sub(
+                r'^\s*\*\*[^*\n]+?\*\*:?[ \t]*\n?',
+                "",
+                text.strip(),
+                count=1,
+                flags=re.IGNORECASE
+            ).strip()
 
         return summary, trend_analysis
 
     def _extract_bullet_section(self, text: str, section_name: str) -> List[str]:
         """Extract bullet points from a section."""
-        # Find section - match text after section header until next section or end
-        pattern = rf'\*\*{section_name}:?\*\*[ \t]*\n(.+?)(?=\n[ \t]*\*\*|\Z)'
-        match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
-
-        if not match:
+        section_text = self._extract_section_text(text, section_name)
+        if not section_text:
             return []
-
-        section_text = match.group(1)
 
         # Extract bullet points (lines starting with -, *, or numbers)
         bullets = []
@@ -415,6 +412,34 @@ class Analyzer:
                 bullets.append(bullet_match.group(1).strip())
 
         return bullets
+
+    def _extract_section_text(self, text: str, section_name: str) -> str:
+        """Extract markdown section body supporting '**Header:**' and '**Header**:' formats."""
+        escaped_name = re.escape(section_name)
+        pattern = (
+            rf'(?ims)^[ \t]*(?:\*\*{escaped_name}:?\*\*|\*\*{escaped_name}\*\*:?)'
+            rf'[ \t]*\n(.+?)(?=^[ \t]*\*\*[^*\n]+?\*\*:?[ \t]*\n|\Z)'
+        )
+        match = re.search(pattern, text)
+        return match.group(1).strip() if match else ""
+
+    def _is_stale_cached_insight(self, insight: Insight) -> bool:
+        """
+        Detect cached insights likely affected by legacy parser behavior.
+
+        Legacy issues included storing markdown headers in summary and truncating to 200 chars.
+        """
+        summary = (insight.summary or "").strip()
+        if not summary:
+            return True
+
+        if re.match(r'^\*\*\s*summary\s*\*\*:?', summary, flags=re.IGNORECASE):
+            return True
+
+        if len(summary) == 200 and not summary.endswith((".", "!", "?")):
+            return True
+
+        return False
 
     def _determine_confidence(self, stock_data: StockData, analysis_text: str) -> str:
         """

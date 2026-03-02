@@ -191,52 +191,75 @@ class TestAnalyzeBatchCommand:
 
 
 class TestRunDailyJobCommand:
-    """Test the run-daily-job command contract."""
+    """Test the run-daily-job command contract (personal use)."""
 
     @pytest.mark.asyncio
-    async def test_run_daily_job_output(self, cli, capsys):
-        """Test daily job command output."""
-        # Mock get_subscriptions and other dependencies
-        with patch.object(cli, '_get_active_subscriptions', return_value=["AAPL", "TSLA"]):
-            exit_code = await cli.run_daily_job(dry_run=False, json_output=False)
+    async def test_run_daily_job_output(self, cli, capsys, monkeypatch):
+        """Test daily job command output using stock list from config."""
+        # Set stock list in config
+        monkeypatch.setattr(cli.config, 'stock_list', 'AAPL,TSLA')
 
-            assert exit_code == 0
+        exit_code = await cli.run_daily_job(dry_run=False, json_output=False)
 
-            captured = capsys.readouterr()
-            output = captured.out
+        assert exit_code == 0
 
-            # Verify job output structure
-            assert "job" in output.lower() or "analysis" in output.lower()
+        captured = capsys.readouterr()
+        output = captured.out
 
-    @pytest.mark.asyncio
-    async def test_run_daily_job_dry_run(self, cli, capsys):
-        """Test daily job in dry-run mode."""
-        with patch.object(cli, '_get_active_subscriptions', return_value=["AAPL"]):
-            exit_code = await cli.run_daily_job(dry_run=True, json_output=False)
-
-            assert exit_code == 0
-
-            captured = capsys.readouterr()
-            output = captured.out
-
-            # Verify dry-run indication
-            assert "dry" in output.lower() or "simulate" in output.lower()
+        # Verify job output structure for personal use
+        assert "job" in output.lower() or "analysis" in output.lower()
+        assert "personal" in output.lower()
 
     @pytest.mark.asyncio
-    async def test_run_daily_job_json_output(self, cli, capsys):
-        """Test daily job with JSON output."""
-        with patch.object(cli, '_get_active_subscriptions', return_value=["AAPL"]):
-            exit_code = await cli.run_daily_job(dry_run=False, json_output=True)
+    async def test_run_daily_job_dry_run(self, cli, capsys, monkeypatch):
+        """Test daily job in dry-run mode with config stock list."""
+        # Set stock list in config
+        monkeypatch.setattr(cli.config, 'stock_list', 'AAPL')
 
-            assert exit_code == 0
+        exit_code = await cli.run_daily_job(dry_run=True, json_output=False)
 
-            captured = capsys.readouterr()
-            output = captured.out
+        assert exit_code == 0
 
-            # Verify JSON structure
-            data = json.loads(output)
-            assert 'job_id' in data or 'status' in data
-            assert 'stocks_scheduled' in data or 'total' in data
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Verify dry-run indication and stock list source
+        assert "dry" in output.lower()
+        assert "aapl" in output.lower()
+
+    @pytest.mark.asyncio
+    async def test_run_daily_job_json_output(self, cli, capsys, monkeypatch):
+        """Test daily job with JSON output using config stock list."""
+        # Set stock list in config
+        monkeypatch.setattr(cli.config, 'stock_list', 'AAPL')
+
+        exit_code = await cli.run_daily_job(dry_run=False, json_output=True)
+
+        assert exit_code == 0
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Verify JSON structure
+        data = json.loads(output)
+        assert 'job_id' in data or 'status' in data
+        assert 'stocks_scheduled' in data or 'total' in data
+
+    @pytest.mark.asyncio
+    async def test_run_daily_job_empty_stock_list(self, cli, capsys, monkeypatch):
+        """Test daily job with empty stock list returns error."""
+        # Set empty stock list
+        monkeypatch.setattr(cli.config, 'stock_list', '')
+
+        exit_code = await cli.run_daily_job(dry_run=False, json_output=False)
+
+        assert exit_code == 1  # Error exit code
+
+        captured = capsys.readouterr()
+        output = captured.err
+
+        # Verify error message mentions stock list
+        assert "stock" in output.lower() and ("empty" in output.lower() or "list" in output.lower())
 
 
 class TestCLIErrorHandling:
@@ -331,3 +354,208 @@ class TestCLIExitCodes:
 
         exit_code = await cli.analyze("AAPL", json_output=False)
         assert exit_code == 3
+
+
+class TestHistoryCommand:
+    """Test the history command contract (personal use - no user filtering)."""
+
+    def test_history_without_user_filtering(self, cli, capsys):
+        """Test history command queries all insights without user_id filtering."""
+        from datetime import date, datetime
+        from stock_analyzer.models import Insight
+
+        # Store multiple insights for same stock
+        insights_data = [
+            Insight(
+                stock_symbol="AAPL",
+                analysis_date=date(2026, 1, 28),
+                summary="Day 1 summary",
+                trend_analysis="Positive",
+                risk_factors=["Risk 1"],
+                opportunities=["Opp 1"],
+                confidence_level="high",
+                metadata={},
+                created_at=datetime(2026, 1, 28, 10, 0)
+            ),
+            Insight(
+                stock_symbol="AAPL",
+                analysis_date=date(2026, 1, 29),
+                summary="Day 2 summary",
+                trend_analysis="Neutral",
+                risk_factors=["Risk 2"],
+                opportunities=["Opp 2"],
+                confidence_level="medium",
+                metadata={},
+                created_at=datetime(2026, 1, 29, 10, 0)
+            ),
+            Insight(
+                stock_symbol="AAPL",
+                analysis_date=date(2026, 1, 30),
+                summary="Day 3 summary",
+                trend_analysis="Negative",
+                risk_factors=["Risk 3"],
+                opportunities=["Opp 3"],
+                confidence_level="low",
+                metadata={},
+                created_at=datetime(2026, 1, 30, 10, 0)
+            )
+        ]
+
+        # Save all insights
+        for insight in insights_data:
+            cli.storage.save_insight(insight)
+
+        # Query history (no user_id needed - personal use)
+        exit_code = cli.history("AAPL", limit=10)
+
+        assert exit_code == 0
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Verify all insights shown (no user filtering)
+        assert "Day 1 summary" in output
+        assert "Day 2 summary" in output
+        assert "Day 3 summary" in output
+        assert "AAPL" in output
+
+    def test_history_with_date_range_filtering(self, cli, capsys):
+        """Test history command with date range filtering."""
+        from datetime import date, datetime
+        from stock_analyzer.models import Insight
+
+        # Store insights across multiple days
+        for day in [27, 28, 29, 30, 31]:
+            insight = Insight(
+                stock_symbol="MSFT",
+                analysis_date=date(2026, 1, day),
+                summary=f"Day {day} analysis",
+                trend_analysis="Test",
+                risk_factors=[],
+                opportunities=[],
+                confidence_level="medium",
+                metadata={},
+                created_at=datetime(2026, 1, day, 10, 0)
+            )
+            cli.storage.save_insight(insight)
+
+        # Query with date range
+        start = date(2026, 1, 28)
+        end = date(2026, 1, 30)
+        exit_code = cli.history("MSFT", start_date=start, end_date=end)
+
+        assert exit_code == 0
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Should include days 28, 29, 30
+        assert "Day 28" in output
+        assert "Day 29" in output
+        assert "Day 30" in output
+
+        # Should NOT include days 27, 31
+        assert "Day 27" not in output
+        assert "Day 31" not in output
+
+    def test_history_json_output(self, cli, capsys):
+        """Test history command with JSON output."""
+        from datetime import date, datetime
+        from stock_analyzer.models import Insight
+
+        insight = Insight(
+            stock_symbol="GOOGL",
+            analysis_date=date(2026, 1, 30),
+            summary="Test summary",
+            trend_analysis="Test trend",
+            risk_factors=["Risk A"],
+            opportunities=["Opp B"],
+            confidence_level="high",
+            metadata={},
+            created_at=datetime(2026, 1, 30, 10, 0)
+        )
+        cli.storage.save_insight(insight)
+
+        # Get JSON output
+        exit_code = cli.history("GOOGL", json_output=True)
+
+        assert exit_code == 0
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Parse JSON
+        data = json.loads(output)
+
+        assert data['status'] == 'success'
+        assert data['symbol'] == 'GOOGL'
+        assert data['total'] == 1
+        assert len(data['insights']) == 1
+        assert data['insights'][0]['summary'] == "Test summary"
+
+    def test_history_pagination(self, cli, capsys):
+        """Test history command pagination (limit/offset)."""
+        from datetime import date, datetime, timedelta
+        from stock_analyzer.models import Insight
+
+        # Store 10 insights
+        base_date = date(2026, 1, 20)
+        for i in range(10):
+            insight = Insight(
+                stock_symbol="TSLA",
+                analysis_date=base_date + timedelta(days=i),
+                summary=f"Analysis {i+1}",
+                trend_analysis="Test",
+                risk_factors=[],
+                opportunities=[],
+                confidence_level="medium",
+                metadata={},
+                created_at=datetime(2026, 1, 20 + i, 10, 0)
+            )
+            cli.storage.save_insight(insight)
+
+        # Test limit
+        exit_code = cli.history("TSLA", limit=5, json_output=True)
+        assert exit_code == 0
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+
+        assert data['total'] == 5
+        assert len(data['insights']) == 5
+
+        # Test offset
+        exit_code = cli.history("TSLA", limit=3, offset=2, json_output=True)
+        assert exit_code == 0
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+
+        assert data['total'] == 3
+        assert data['offset'] == 2
+
+    def test_history_empty_results(self, cli, capsys):
+        """Test history command with no results."""
+        # Query non-existent symbol
+        exit_code = cli.history("NONEXIST", json_output=False)
+
+        assert exit_code == 0
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        assert "No insights found" in output
+        assert "NONEXIST" in output
+
+    def test_history_empty_results_json(self, cli, capsys):
+        """Test history command with no results (JSON output)."""
+        exit_code = cli.history("EMPTY", json_output=True)
+
+        assert exit_code == 0
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+
+        assert data['status'] == 'success'
+        assert data['total'] == 0
+        assert data['insights'] == []

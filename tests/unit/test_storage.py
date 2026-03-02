@@ -1,10 +1,8 @@
 """
-Unit tests for Storage class.
+Unit tests for Storage class (personal use).
 
 Tests database operations including:
 - Database initialization
-- User management
-- Subscription management
 - Analysis and insight storage
 - Delivery log tracking
 - Job tracking
@@ -17,14 +15,12 @@ from pathlib import Path
 
 import pytest
 
-from stock_analyzer.exceptions import StorageError, SubscriptionLimitError
+from stock_analyzer.exceptions import StorageError
 from stock_analyzer.models import (
     AnalysisJob,
     DeliveryLog,
     Insight,
     StockAnalysis,
-    Subscription,
-    User,
 )
 from stock_analyzer.storage import Storage
 
@@ -51,25 +47,27 @@ class TestStorageInitialization:
     """Test database initialization."""
 
     def test_init_database_creates_tables(self, temp_db):
-        """Test that init_database creates all required tables."""
+        """Test that init_database creates all required tables (personal use)."""
         storage = Storage(temp_db)
         storage.init_database()
 
         conn = sqlite3.connect(temp_db)
         cursor = conn.cursor()
 
-        # Check all tables exist
+        # Check all tables exist (personal use - no users/subscriptions)
         cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         )
         tables = [row[0] for row in cursor.fetchall()]
 
-        assert "users" in tables
-        assert "subscriptions" in tables
         assert "stock_analyses" in tables
         assert "insights" in tables
         assert "delivery_logs" in tables
         assert "analysis_jobs" in tables
+
+        # Verify multi-user tables are NOT created
+        assert "users" not in tables
+        assert "subscriptions" not in tables
 
         conn.close()
 
@@ -92,123 +90,6 @@ class TestStorageInitialization:
 
         conn.close()
 
-
-class TestUserOperations:
-    """Test user management operations."""
-
-    def test_add_user(self, storage):
-        """Test adding a new user."""
-        user = User(
-            user_id="123456789",
-            telegram_username="@testuser",
-            created_at=datetime.utcnow(),
-            last_active=datetime.utcnow(),
-        )
-
-        storage.add_user(user)
-
-        # Verify user was added
-        retrieved = storage.get_user("123456789")
-        assert retrieved is not None
-        assert retrieved.user_id == "123456789"
-        assert retrieved.telegram_username == "@testuser"
-
-    def test_update_user_last_active(self, storage):
-        """Test updating user's last active timestamp."""
-        user = User(user_id="123456789")
-        storage.add_user(user)
-
-        # Update last active
-        new_time = datetime.utcnow()
-        storage.update_user_last_active("123456789", new_time)
-
-        # Verify update
-        retrieved = storage.get_user("123456789")
-        assert retrieved.last_active >= new_time
-
-
-class TestSubscriptionOperations:
-    """Test subscription management operations."""
-
-    def test_add_subscription(self, storage):
-        """Test adding a subscription."""
-        # First add user
-        user = User(user_id="123456789")
-        storage.add_user(user)
-
-        # Add subscription
-        sub = Subscription(
-            user_id="123456789",
-            stock_symbol="AAPL",
-            subscription_date=datetime.utcnow(),
-            active_status=1,
-        )
-        result = storage.add_subscription(sub)
-
-        assert result.id is not None
-        assert result.stock_symbol == "AAPL"
-
-    def test_get_subscriptions_by_user(self, storage):
-        """Test retrieving user's subscriptions."""
-        user = User(user_id="123456789")
-        storage.add_user(user)
-
-        # Add multiple subscriptions
-        storage.add_subscription(Subscription(user_id="123456789", stock_symbol="AAPL"))
-        storage.add_subscription(Subscription(user_id="123456789", stock_symbol="TSLA"))
-        storage.add_subscription(Subscription(user_id="123456789", stock_symbol="MSFT"))
-
-        # Get subscriptions
-        subs = storage.get_subscriptions(user_id="123456789")
-
-        assert len(subs) == 3
-        symbols = {sub.stock_symbol for sub in subs}
-        assert symbols == {"AAPL", "TSLA", "MSFT"}
-
-    def test_get_all_active_subscriptions(self, storage):
-        """Test retrieving all active subscriptions across users."""
-        # Add two users with subscriptions
-        storage.add_user(User(user_id="111"))
-        storage.add_user(User(user_id="222"))
-
-        storage.add_subscription(Subscription(user_id="111", stock_symbol="AAPL"))
-        storage.add_subscription(Subscription(user_id="222", stock_symbol="TSLA"))
-
-        # Get all subscriptions
-        all_subs = storage.get_subscriptions()
-
-        assert len(all_subs) == 2
-
-    def test_remove_subscription(self, storage):
-        """Test removing a subscription (setting active_status=0)."""
-        user = User(user_id="123456789")
-        storage.add_user(user)
-
-        storage.add_subscription(Subscription(user_id="123456789", stock_symbol="AAPL"))
-
-        # Remove subscription
-        storage.remove_subscription("123456789", "AAPL")
-
-        # Verify it's inactive
-        subs = storage.get_subscriptions(user_id="123456789", active_only=True)
-        assert len(subs) == 0
-
-    def test_subscription_limit_per_user(self, storage):
-        """Test that user subscription limit is enforced."""
-        user = User(user_id="123456789")
-        storage.add_user(user)
-
-        # Add 10 subscriptions (at limit)
-        for i in range(10):
-            storage.add_subscription(
-                Subscription(user_id="123456789", stock_symbol=f"SYM{i:02d}")
-            )
-
-        # Try to add 11th subscription - should raise error
-        with pytest.raises(SubscriptionLimitError):
-            storage.add_subscription(
-                Subscription(user_id="123456789", stock_symbol="LIMIT")
-            )
 
 
 class TestAnalysisOperations:
@@ -298,15 +179,109 @@ class TestInsightOperations:
 
     def test_get_insights_with_date_range(self, storage):
         """Test retrieving insights with date filtering."""
-        # This test would need multiple days of data
-        # For now, just test the method exists and runs
+        # Save insights across multiple days
+        for day in [15, 20, 25, 30]:
+            insight = Insight(
+                stock_symbol="AAPL",
+                analysis_date=date(2026, 1, day),
+                summary=f"Day {day} analysis",
+                trend_analysis="Test",
+                risk_factors=[],
+                opportunities=[],
+                confidence_level="medium"
+            )
+            storage.save_insight(insight)
+
+        # Query with date range
         insights = storage.get_insights(
             "AAPL",
-            start_date=date(2026, 1, 1),
-            end_date=date(2026, 1, 31),
-            limit=10,
+            start_date=date(2026, 1, 18),
+            end_date=date(2026, 1, 28),
+            limit=10
         )
-        assert isinstance(insights, list)
+
+        # Should only include days 20 and 25
+        assert len(insights) == 2
+        dates = [i.analysis_date.day for i in insights]
+        assert 20 in dates
+        assert 25 in dates
+        assert 15 not in dates
+        assert 30 not in dates
+
+    def test_get_insights_without_user_filtering(self, storage):
+        """Test get_insights() returns all insights for symbol (personal use - no user filtering)."""
+        # Save multiple insights for same stock
+        for i in range(5):
+            insight = Insight(
+                stock_symbol="MSFT",
+                analysis_date=date(2026, 1, 20 + i),
+                summary=f"Analysis {i+1}",
+                trend_analysis="Test",
+                risk_factors=[],
+                opportunities=[],
+                confidence_level="medium"
+            )
+            storage.save_insight(insight)
+
+        # Query without any user_id parameter (personal use)
+        insights = storage.get_insights("MSFT", limit=10)
+
+        # Should return all 5 insights
+        assert len(insights) == 5
+
+    def test_get_insights_pagination(self, storage):
+        """Test pagination with limit and offset."""
+        # Save 10 insights
+        for i in range(10):
+            insight = Insight(
+                stock_symbol="GOOGL",
+                analysis_date=date(2026, 1, 1 + i),
+                summary=f"Day {i+1}",
+                trend_analysis="Test",
+                risk_factors=[],
+                opportunities=[],
+                confidence_level="medium"
+            )
+            storage.save_insight(insight)
+
+        # Test limit
+        page1 = storage.get_insights("GOOGL", limit=3, offset=0)
+        assert len(page1) == 3
+
+        # Test offset
+        page2 = storage.get_insights("GOOGL", limit=3, offset=3)
+        assert len(page2) == 3
+
+        # Verify different results
+        assert page1[0].analysis_date != page2[0].analysis_date
+
+        # Test limit larger than total
+        all_insights = storage.get_insights("GOOGL", limit=100)
+        assert len(all_insights) == 10
+
+    def test_get_insights_ordered_by_date_desc(self, storage):
+        """Test insights are returned in descending date order."""
+        # Save insights out of order
+        dates = [date(2026, 1, 25), date(2026, 1, 20), date(2026, 1, 30)]
+        for d in dates:
+            insight = Insight(
+                stock_symbol="TSLA",
+                analysis_date=d,
+                summary="Test",
+                trend_analysis="Test",
+                risk_factors=[],
+                opportunities=[],
+                confidence_level="medium"
+            )
+            storage.save_insight(insight)
+
+        # Query insights
+        insights = storage.get_insights("TSLA", limit=10)
+
+        # Should be ordered descending (newest first)
+        assert insights[0].analysis_date == date(2026, 1, 30)
+        assert insights[1].analysis_date == date(2026, 1, 25)
+        assert insights[2].analysis_date == date(2026, 1, 20)
 
 
 class TestJobOperations:
@@ -340,13 +315,11 @@ class TestJobOperations:
 
 
 class TestDeliveryLogging:
-    """Test delivery log operations."""
+    """Test delivery log operations (personal use)."""
 
-    def test_log_delivery(self, storage):
-        """Test logging a delivery."""
-        # Setup: user, analysis, insight
-        storage.add_user(User(user_id="123456789"))
-
+    def test_log_delivery_to_channel(self, storage):
+        """Test logging a delivery to personal channel."""
+        # Setup: analysis, insight (no user needed for personal use)
         analysis = StockAnalysis(
             stock_symbol="AAPL",
             analysis_date=date.today(),
@@ -354,10 +327,8 @@ class TestDeliveryLogging:
             analysis_status="success",
         )
         storage.save_analysis(analysis)
-        saved_analysis = storage.get_analysis("AAPL", date.today())
 
         insight = Insight(
-            analysis_id=saved_analysis.id,
             stock_symbol="AAPL",
             analysis_date=date.today(),
             summary="Test",
@@ -366,36 +337,31 @@ class TestDeliveryLogging:
             opportunities=["Test"],
             confidence_level="high",
         )
-        storage.save_insight(insight)
+        insight_id = storage.save_insight(insight)
 
-        # Get saved insight ID (would need method to retrieve)
-        # For now, assume insight has ID 1
+        # Create delivery log for personal channel (not user)
         log = DeliveryLog(
-            insight_id=1,
-            user_id="123456789",
+            insight_id=insight_id,
+            channel_id="@mystocks",  # Personal channel instead of user_id
             delivery_status="success",
             delivery_method="telegram",
             telegram_message_id="987654321",
         )
 
-        # Should not raise error
-        # storage.log_delivery(log)
-        assert True  # Placeholder until method exists
+        # Save delivery log
+        log_id = storage.save_delivery_log(log)
+        assert log_id is not None
+        assert log_id > 0
 
 
 class TestErrorHandling:
-    """Test error handling in storage operations."""
+    """Test error handling in storage operations (personal use)."""
 
     def test_invalid_database_path(self):
         """Test that invalid database path raises appropriate error."""
         with pytest.raises((StorageError, sqlite3.OperationalError, OSError)):
             storage = Storage("/invalid/path/database.db")
             storage.init_database()
-
-    def test_get_nonexistent_user(self, storage):
-        """Test retrieving non-existent user returns None."""
-        user = storage.get_user("nonexistent")
-        assert user is None
 
     def test_get_nonexistent_analysis(self, storage):
         """Test retrieving non-existent analysis returns None."""

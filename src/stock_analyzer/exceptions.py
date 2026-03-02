@@ -118,19 +118,3 @@ class RateLimitError(StockAnalyzerError):
         super().__init__(f"Rate limit exceeded for {provider}{retry_info}")
 
 
-class SubscriptionLimitError(StockAnalyzerError):
-    """
-    Subscription limit reached.
-
-    Raised when:
-    - User tries to exceed 10 stocks per user limit
-    - System tries to exceed 100 total stocks limit
-    """
-
-    def __init__(self, limit_type: str, current: int, max_limit: int):
-        self.limit_type = limit_type
-        self.current = current
-        self.max_limit = max_limit
-        super().__init__(
-            f"{limit_type} subscription limit reached: {current}/{max_limit}"
-        )

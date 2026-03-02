@@ -421,3 +421,214 @@ class TestCommandValidation:
             subs = storage.get_subscriptions(user_id="12345", active_only=True)
             assert len(subs) == 1
             assert subs[0].stock_symbol == "AAPL"
+
+
+# ==================== Personal Use Channel Delivery Tests ====================
+
+
+class TestChannelDeliveryIntegration:
+    """Integration tests for channel delivery (personal use)."""
+
+    @pytest.mark.asyncio
+    async def test_end_to_end_channel_delivery(self, storage):
+        """
+        GIVEN an insight is generated
+        WHEN delivered to personal channel
+        THEN message is sent and delivery logged
+        """
+        from datetime import date
+        from stock_analyzer.deliverer import InsightDeliverer
+        from stock_analyzer.models import Insight
+
+        # Create insight
+        insight = Insight(
+            stock_symbol="AAPL",
+            analysis_date=date.today(),
+            summary="Strong upward momentum observed",
+            trend_analysis="Positive trend with increasing volume",
+            risk_factors=["Market volatility", "Valuation concerns"],
+            opportunities=["Product launches", "Services growth"],
+            confidence_level="high"
+        )
+        insight_id = storage.save_insight(insight)
+        insight.id = insight_id
+
+        # Create deliverer with mock Telegram
+        deliverer = InsightDeliverer(storage=storage)
+
+        # Mock Telegram channel
+        with patch('stock_analyzer.deliverer.Bot') as MockBot:
+            mock_bot = MockBot.return_value
+            mock_bot.send_message = AsyncMock()
+
+            from stock_analyzer.deliverer import TelegramChannel
+            channel = TelegramChannel(token="test-token")
+            deliverer.add_channel("telegram", channel)
+
+            # Deliver to channel
+            result = await deliverer.deliver_to_channel(
+                insight=insight,
+                channel_id="@mystocks"
+            )
+
+            # Verify delivery succeeded
+            assert result.status == "success"
+            assert result.channel_id == "@mystocks"
+
+            # Verify Telegram API was called
+            mock_bot.send_message.assert_called_once()
+            call_args = mock_bot.send_message.call_args
+            assert call_args.kwargs['chat_id'] == "@mystocks"
+            assert "AAPL" in call_args.kwargs['text']
+
+    @pytest.mark.asyncio
+    async def test_channel_delivery_error_handling(self, storage):
+        """
+        GIVEN an invalid channel ID
+        WHEN attempting delivery
+        THEN error is handled gracefully and logged
+        """
+        from datetime import date
+        from stock_analyzer.deliverer import InsightDeliverer
+        from stock_analyzer.models import Insight
+        from telegram.error import TelegramError
+
+        insight = Insight(
+            stock_symbol="AAPL",
+            analysis_date=date.today(),
+            summary="Test summary",
+            trend_analysis="Test trend",
+            risk_factors=[],
+            opportunities=[],
+            confidence_level="medium"
+        )
+        insight_id = storage.save_insight(insight)
+        insight.id = insight_id
+
+        deliverer = InsightDeliverer(storage=storage)
+
+        # Mock Telegram channel that fails
+        with patch('stock_analyzer.deliverer.Bot') as MockBot:
+            mock_bot = MockBot.return_value
+            mock_bot.send_message = AsyncMock(
+                side_effect=TelegramError("Chat not found")
+            )
+
+            from stock_analyzer.deliverer import TelegramChannel
+            channel = TelegramChannel(token="test-token")
+            deliverer.add_channel("telegram", channel)
+
+            # Attempt delivery
+            result = await deliverer.deliver_to_channel(
+                insight=insight,
+                channel_id="@invalid_channel"
+            )
+
+            # Verify error handled
+            assert result.status == "failed"
+            assert result.error_message is not None
+            assert "chat not found" in result.error_message.lower()
+
+    @pytest.mark.asyncio
+    async def test_channel_permission_error_handling(self, storage):
+        """
+        GIVEN bot lacks permissions in channel
+        WHEN attempting delivery
+        THEN permission error is caught and logged
+        """
+        from datetime import date
+        from stock_analyzer.deliverer import InsightDeliverer
+        from stock_analyzer.models import Insight
+        from telegram.error import TelegramError
+
+        insight = Insight(
+            stock_symbol="AAPL",
+            analysis_date=date.today(),
+            summary="Test",
+            trend_analysis="Test",
+            risk_factors=[],
+            opportunities=[],
+            confidence_level="high"
+        )
+        insight_id = storage.save_insight(insight)
+        insight.id = insight_id
+
+        deliverer = InsightDeliverer(storage=storage)
+
+        with patch('stock_analyzer.deliverer.Bot') as MockBot:
+            mock_bot = MockBot.return_value
+            mock_bot.send_message = AsyncMock(
+                side_effect=TelegramError("Need administrator rights")
+            )
+
+            from stock_analyzer.deliverer import TelegramChannel
+            channel = TelegramChannel(token="test-token")
+            deliverer.add_channel("telegram", channel)
+
+            result = await deliverer.deliver_to_channel(
+                insight=insight,
+                channel_id="@restricted"
+            )
+
+            assert result.status == "failed"
+            assert "administrator" in result.error_message.lower() or "permission" in result.error_message.lower()
+
+    @pytest.mark.asyncio
+    async def test_multiple_insights_to_channel(self, storage):
+        """
+        GIVEN multiple insights for different stocks
+        WHEN delivered to same channel
+        THEN all messages posted successfully
+        """
+        from datetime import date
+        from stock_analyzer.deliverer import InsightDeliverer
+        from stock_analyzer.models import Insight
+
+        symbols = ["AAPL", "MSFT", "GOOGL"]
+        insights = []
+
+        for symbol in symbols:
+            insight = Insight(
+                stock_symbol=symbol,
+                analysis_date=date.today(),
+                summary=f"{symbol} analysis",
+                trend_analysis="Positive",
+                risk_factors=[],
+                opportunities=[],
+                confidence_level="high"
+            )
+            insight_id = storage.save_insight(insight)
+            insight.id = insight_id
+            insights.append(insight)
+
+        deliverer = InsightDeliverer(storage=storage)
+
+        with patch('stock_analyzer.deliverer.Bot') as MockBot:
+            mock_bot = MockBot.return_value
+            mock_bot.send_message = AsyncMock()
+
+            from stock_analyzer.deliverer import TelegramChannel
+            channel = TelegramChannel(token="test-token")
+            deliverer.add_channel("telegram", channel)
+
+            # Deliver all insights
+            results = []
+            for insight in insights:
+                result = await deliverer.deliver_to_channel(
+                    insight=insight,
+                    channel_id="@mystocks"
+                )
+                results.append(result)
+
+            # Verify all succeeded
+            assert all(r.status == "success" for r in results)
+            assert mock_bot.send_message.call_count == 3
+
+            # Verify each stock mentioned in its message
+            for symbol in symbols:
+                found = False
+                for call in mock_bot.send_message.call_args_list:
+                    if symbol in call.kwargs['text']:
+                        found = True
+                        break
+                assert found, f"Symbol {symbol} not found in any message"

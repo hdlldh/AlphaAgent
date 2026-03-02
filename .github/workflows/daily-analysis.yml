@@ -63,6 +63,12 @@ jobs:
           # Stock Data API Keys
           STOCK_ANALYZER_STOCK_API_KEY: ${{ secrets.ALPHA_VANTAGE_KEY }}
 
+          # Personal Stock List (comma-separated symbols)
+          STOCK_ANALYZER_STOCK_LIST: ${{ secrets.STOCK_LIST }}
+
+          # Telegram Channel ID
+          STOCK_ANALYZER_TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL }}
+
           # Telegram Bot Token
           STOCK_ANALYZER_TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
 

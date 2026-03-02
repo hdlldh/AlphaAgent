@@ -274,29 +274,35 @@ class CLI:
         self, dry_run: bool = False, json_output: bool = False
     ) -> int:
         """
-        Run the daily analysis job.
+        Run the daily analysis job (personal use).
+
+        Reads stock list from config (STOCK_ANALYZER_STOCK_LIST environment variable).
 
         Args:
             dry_run: If True, show what would be analyzed without running
             json_output: Output as JSON
 
         Returns:
-            Exit code (0=success)
+            Exit code (0=success, 1=error)
         """
         try:
-            # Get all active subscriptions
-            symbols = self._get_active_subscriptions()
+            # Get stock list from config (personal use - no subscriptions)
+            symbols = self.config.get_stock_symbols()
 
             if not symbols:
+                error_msg = (
+                    "Stock list is empty. Set STOCK_ANALYZER_STOCK_LIST environment variable. "
+                    "Example: STOCK_ANALYZER_STOCK_LIST=AAPL,MSFT,GOOGL"
+                )
                 if json_output:
                     print(
                         json.dumps(
-                            {"status": "success", "message": "No active subscriptions"}
+                            {"status": "error", "error_message": error_msg}
                         )
                     )
                 else:
-                    print("No active subscriptions to analyze.")
-                return 0
+                    print(f"Error: {error_msg}", file=sys.stderr)
+                return 1
 
             if dry_run:
                 if json_output:
@@ -314,11 +320,13 @@ class CLI:
                     print(f"\nDRY RUN - Would analyze {len(symbols)} stocks:")
                     for symbol in symbols:
                         print(f"  • {symbol}")
+                    print(f"\nFrom: STOCK_ANALYZER_STOCK_LIST={self.config.stock_list}")
                     print()
                 return 0
 
             # Create job
             job = self.storage.create_job(stocks_scheduled=len(symbols))
+            logger.info(f"Created job {job.id} for {len(symbols)} stocks")
 
             # Run batch analysis
             result = await self.analyzer.analyze_batch(
@@ -350,7 +358,7 @@ class CLI:
                 )
             else:
                 print(f"\n{'=' * 70}")
-                print(f"Daily Analysis Job Completed")
+                print(f"Daily Analysis Job Completed (Personal Use)")
                 print(f"{'=' * 70}")
                 print(f"Job ID: {job.id}")
                 print(f"Stocks analyzed: {result.total}")
@@ -362,256 +370,13 @@ class CLI:
             return 0
 
         except Exception as e:
+            logger.error(f"Daily job failed: {e}", exc_info=True)
             if json_output:
                 print(json.dumps({"status": "error", "error_message": str(e)}))
             else:
                 print(f"Error: Daily job failed - {e}", file=sys.stderr)
             return 1
 
-    def _get_active_subscriptions(self) -> List[str]:
-        """Get list of unique stock symbols from active subscriptions."""
-        subscriptions = self.storage.get_subscriptions(active_only=True)
-        # Return unique symbols
-        return list(set(sub.stock_symbol for sub in subscriptions))
-
-    async def subscribe(
-        self,
-        user_id: str,
-        symbol: str,
-        json_output: bool = False
-    ) -> int:
-        """
-        Subscribe a user to a stock.
-
-        Args:
-            user_id: User ID (Telegram ID)
-            symbol: Stock symbol
-            json_output: Output as JSON
-
-        Returns:
-            Exit code (0=success, 1=error)
-        """
-        try:
-            from stock_analyzer.models import Subscription
-
-            # Normalize symbol
-            symbol = symbol.upper().strip()
-
-            # Check if already subscribed
-            existing = self.storage.get_subscriptions(
-                user_id=user_id,
-                stock_symbol=symbol,
-                active_only=True
-            )
-            if existing:
-                if json_output:
-                    print(json.dumps({
-                        "status": "error",
-                        "error_message": f"Already subscribed to {symbol}"
-                    }))
-                else:
-                    print(f"Already subscribed to {symbol}")
-                return 1
-
-            # Check subscription limit
-            count = self.storage.get_subscription_count(user_id=user_id, active_only=True)
-            if count >= 10:
-                if json_output:
-                    print(json.dumps({
-                        "status": "error",
-                        "error_message": f"Subscription limit reached ({count}/10)"
-                    }))
-                else:
-                    print(f"Error: Subscription limit reached ({count}/10)", file=sys.stderr)
-                return 1
-
-            # Validate symbol
-            is_valid = await self.analyzer.fetcher.validate_symbol(symbol)
-            if not is_valid:
-                if json_output:
-                    print(json.dumps({
-                        "status": "error",
-                        "error_message": f"Invalid symbol: {symbol}"
-                    }))
-                else:
-                    print(f"Error: Invalid symbol: {symbol}", file=sys.stderr)
-                return 1
-
-            # Add subscription
-            subscription = Subscription(
-                user_id=user_id,
-                stock_symbol=symbol
-            )
-            self.storage.add_subscription(subscription)
-
-            if json_output:
-                print(json.dumps({
-                    "status": "success",
-                    "user_id": user_id,
-                    "symbol": symbol,
-                    "subscription_count": count + 1
-                }))
-            else:
-                print(f"✓ Successfully subscribed {user_id} to {symbol}")
-                print(f"  Subscriptions: {count + 1}/10")
-
-            return 0
-
-        except Exception as e:
-            if json_output:
-                print(json.dumps({
-                    "status": "error",
-                    "error_message": str(e)
-                }))
-            else:
-                print(f"Error: Failed to subscribe - {e}", file=sys.stderr)
-            return 1
-
-    def unsubscribe(
-        self,
-        user_id: str,
-        symbol: str,
-        json_output: bool = False
-    ) -> int:
-        """
-        Unsubscribe a user from a stock.
-
-        Args:
-            user_id: User ID (Telegram ID)
-            symbol: Stock symbol
-            json_output: Output as JSON
-
-        Returns:
-            Exit code (0=success, 1=error)
-        """
-        try:
-            # Normalize symbol
-            symbol = symbol.upper().strip()
-
-            # Check if subscribed
-            existing = self.storage.get_subscriptions(
-                user_id=user_id,
-                stock_symbol=symbol,
-                active_only=True
-            )
-            if not existing:
-                if json_output:
-                    print(json.dumps({
-                        "status": "error",
-                        "error_message": f"Not subscribed to {symbol}"
-                    }))
-                else:
-                    print(f"Error: Not subscribed to {symbol}", file=sys.stderr)
-                return 1
-
-            # Remove subscription
-            self.storage.remove_subscription(user_id, symbol)
-
-            # Get updated count
-            count = self.storage.get_subscription_count(user_id=user_id, active_only=True)
-
-            if json_output:
-                print(json.dumps({
-                    "status": "success",
-                    "user_id": user_id,
-                    "symbol": symbol,
-                    "subscription_count": count
-                }))
-            else:
-                print(f"✓ Successfully unsubscribed {user_id} from {symbol}")
-                print(f"  Remaining subscriptions: {count}/10")
-
-            return 0
-
-        except Exception as e:
-            if json_output:
-                print(json.dumps({
-                    "status": "error",
-                    "error_message": str(e)
-                }))
-            else:
-                print(f"Error: Failed to unsubscribe - {e}", file=sys.stderr)
-            return 1
-
-    def list_subscriptions(
-        self,
-        user_id: Optional[str] = None,
-        json_output: bool = False
-    ) -> int:
-        """
-        List subscriptions.
-
-        Args:
-            user_id: Optional user ID to filter by. If None, list all.
-            json_output: Output as JSON
-
-        Returns:
-            Exit code (0=success)
-        """
-        try:
-            # Get subscriptions
-            subscriptions = self.storage.get_subscriptions(
-                user_id=user_id,
-                active_only=True
-            )
-
-            if json_output:
-                subs_list = [
-                    {
-                        "user_id": sub.user_id,
-                        "stock_symbol": sub.stock_symbol,
-                        "subscription_date": sub.subscription_date.isoformat() if sub.subscription_date else None
-                    }
-                    for sub in subscriptions
-                ]
-                print(json.dumps({
-                    "status": "success",
-                    "total": len(subscriptions),
-                    "subscriptions": subs_list
-                }))
-            else:
-                if not subscriptions:
-                    print("No active subscriptions found.")
-                    return 0
-
-                # Group by user if listing all
-                if user_id:
-                    print(f"\nSubscriptions for user {user_id}:")
-                    print(f"{'=' * 70}")
-                    for sub in sorted(subscriptions, key=lambda s: s.stock_symbol):
-                        sub_date = sub.subscription_date.strftime("%Y-%m-%d") if sub.subscription_date else "N/A"
-                        print(f"  • {sub.stock_symbol} (since {sub_date})")
-                    count = len(subscriptions)
-                    print(f"{'=' * 70}")
-                    print(f"Total: {count}/10\n")
-                else:
-                    # Group by user
-                    by_user = {}
-                    for sub in subscriptions:
-                        if sub.user_id not in by_user:
-                            by_user[sub.user_id] = []
-                        by_user[sub.user_id].append(sub)
-
-                    print(f"\nAll Active Subscriptions:")
-                    print(f"{'=' * 70}")
-                    for uid, subs in sorted(by_user.items()):
-                        symbols = ", ".join(sorted(s.stock_symbol for s in subs))
-                        print(f"  {uid}: {symbols} ({len(subs)}/10)")
-                    print(f"{'=' * 70}")
-                    print(f"Total users: {len(by_user)}")
-                    print(f"Total subscriptions: {len(subscriptions)}\n")
-
-            return 0
-
-        except Exception as e:
-            if json_output:
-                print(json.dumps({
-                    "status": "error",
-                    "error_message": str(e)
-                }))
-            else:
-                print(f"Error: Failed to list subscriptions - {e}", file=sys.stderr)
-            return 1
 
     async def validate(
         self,
@@ -731,7 +496,7 @@ class CLI:
 
                 # Table header
                 print(f"\n{'=' * 100}")
-                print(f"Historical Insights for {symbol}")
+                print(f"Historical Insights for {symbol} (Personal Analysis History)")
                 if start_date or end_date:
                     date_range = ""
                     if start_date:
@@ -842,10 +607,10 @@ class CLI:
         json_output: bool = False
     ) -> int:
         """
-        Display system statistics.
+        Display system statistics (personal use).
 
         Shows:
-        - Total subscriptions (per user and system-wide)
+        - Personal stock list
         - Total analyses performed
         - Total insights generated
         - Recent job statistics
@@ -860,18 +625,9 @@ class CLI:
         try:
             from datetime import datetime, timedelta
 
-            # Get subscription statistics
-            all_subscriptions = self.storage.get_subscriptions(active_only=True)
-            unique_users = len(set(sub.user_id for sub in all_subscriptions))
-            unique_stocks = len(set(sub.stock_symbol for sub in all_subscriptions))
-
-            # Get subscription counts per user
-            user_sub_counts = {}
-            for sub in all_subscriptions:
-                user_sub_counts[sub.user_id] = user_sub_counts.get(sub.user_id, 0) + 1
-
-            avg_subs_per_user = len(all_subscriptions) / unique_users if unique_users > 0 else 0
-            max_subs_per_user = max(user_sub_counts.values()) if user_sub_counts else 0
+            # Get personal stock list
+            stock_symbols = self.config.get_stock_symbols()
+            unique_stocks = len(stock_symbols)
 
             # Get analysis statistics
             conn = self.storage._get_connection()
@@ -931,12 +687,9 @@ class CLI:
             if json_output:
                 print(json.dumps({
                     "status": "success",
-                    "subscriptions": {
-                        "total": len(all_subscriptions),
-                        "unique_users": unique_users,
-                        "unique_stocks": unique_stocks,
-                        "avg_per_user": round(avg_subs_per_user, 2),
-                        "max_per_user": max_subs_per_user
+                    "stock_list": {
+                        "symbols": stock_symbols,
+                        "count": unique_stocks
                     },
                     "analyses": {
                         "total": total_analyses,
@@ -968,16 +721,13 @@ class CLI:
                 }))
             else:
                 print("=" * 80)
-                print("STOCK ANALYZER - SYSTEM STATISTICS")
+                print("STOCK ANALYZER - SYSTEM STATISTICS (Personal Use)")
                 print("=" * 80)
                 print()
 
-                print("📊 SUBSCRIPTIONS")
-                print(f"  Total Active: {len(all_subscriptions)}")
-                print(f"  Unique Users: {unique_users}")
-                print(f"  Unique Stocks: {unique_stocks}")
-                print(f"  Avg per User: {avg_subs_per_user:.1f}")
-                print(f"  Max per User: {max_subs_per_user}")
+                print("📊 PERSONAL STOCK LIST")
+                print(f"  Symbols: {', '.join(stock_symbols)}")
+                print(f"  Count: {unique_stocks}")
                 print()
 
                 print("🔍 ANALYSES")

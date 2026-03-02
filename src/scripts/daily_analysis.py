@@ -29,13 +29,13 @@ logger = get_logger(__name__)
 
 async def main():
     """
-    Main daily analysis workflow.
+    Main daily analysis workflow (personal use).
 
     Steps:
     1. Load configuration
-    2. Get all active subscriptions
-    3. Analyze unique stocks
-    4. Deliver insights to subscribers
+    2. Get stock list from config (not subscriptions)
+    3. Analyze all stocks in list
+    4. Deliver insights to personal channel
     5. Log job results
     """
     try:
@@ -44,22 +44,30 @@ async def main():
 
         # Initialize structured logging
         setup_logging(level=config.log_level)
-        logger.info("Starting daily analysis job")
+        logger.info("Starting daily analysis job (personal use)")
         logger.info(f"Configuration loaded. Database: {config.db_path}")
 
         # Initialize storage
         storage = Storage(config.db_path)
         storage.init_database()
 
-        # Get all active subscriptions
-        subscriptions = storage.get_subscriptions(active_only=True)
-        unique_symbols = list(set(sub.stock_symbol for sub in subscriptions))
+        # Get stock list from config (personal use - no subscriptions)
+        symbols = config.get_stock_symbols()
+
+        # Deduplicate symbols (get_stock_symbols already does this, but defensive)
+        unique_symbols = list(dict.fromkeys(symbols))
 
         if not unique_symbols:
-            logger.info("No active subscriptions found. Exiting.")
-            return 0
+            logger.error("Stock list is empty or not configured. Set STOCK_ANALYZER_STOCK_LIST")
+            logger.error("Example: STOCK_ANALYZER_STOCK_LIST=AAPL,MSFT,GOOGL")
+            return 1
 
-        logger.info(f"Found {len(unique_symbols)} unique stocks to analyze from {len(subscriptions)} subscriptions")
+        logger.info(f"Loaded {len(unique_symbols)} stocks from personal stock list: {', '.join(unique_symbols)}")
+
+        # Validate symbols and log warnings for potentially invalid ones
+        for symbol in unique_symbols:
+            if not symbol.replace('.', '').replace('-', '').isalnum():
+                logger.warning(f"Stock symbol '{symbol}' may be invalid (contains unusual characters)")
 
         # Create job record
         job = storage.create_job(stocks_scheduled=len(unique_symbols))
@@ -101,15 +109,15 @@ async def main():
             f"duration={analysis_result.duration_seconds:.2f}s"
         )
 
-        # Initialize deliverer
-        if config.telegram_token:
+        # Initialize deliverer for personal channel
+        if config.telegram_token and config.telegram_channel:
             deliverer = InsightDeliverer(
                 storage=storage,
                 telegram_token=config.telegram_token
             )
-            logger.info("Delivering insights to subscribers...")
+            logger.info(f"Delivering insights to personal channel: {config.telegram_channel}")
 
-            # Deliver insights for successful analyses
+            # Deliver insights for successful analyses to personal channel
             delivery_count = 0
             delivery_success = 0
             delivery_failed = 0
@@ -121,15 +129,17 @@ async def main():
                     if insights:
                         insight = insights[0]
 
-                        # Deliver to subscribers of this stock
-                        delivery_result = await deliverer.deliver_to_subscribers(
+                        # Deliver to personal channel (not to subscribers)
+                        delivery_result = await deliverer.deliver_to_channel(
                             insight=insight,
-                            channel="telegram"
+                            channel_id=config.telegram_channel
                         )
 
-                        delivery_count += delivery_result.total
-                        delivery_success += delivery_result.success_count
-                        delivery_failed += delivery_result.failure_count
+                        delivery_count += 1
+                        if delivery_result.status == "success":
+                            delivery_success += 1
+                        else:
+                            delivery_failed += 1
 
             logger.info(
                 f"Delivery complete: {delivery_count} total, "
@@ -148,7 +158,11 @@ async def main():
                 duration_seconds=analysis_result.duration_seconds
             )
         else:
-            logger.warning("Telegram token not configured. Skipping delivery.")
+            if not config.telegram_token:
+                logger.warning("Telegram token not configured. Skipping delivery.")
+            elif not config.telegram_channel:
+                logger.warning("Telegram channel not configured. Skipping delivery.")
+                logger.warning("Set STOCK_ANALYZER_TELEGRAM_CHANNEL to enable delivery")
 
             # Update job without delivery
             storage.update_job(

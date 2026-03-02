@@ -38,13 +38,17 @@ class Config:
 
     # Telegram Configuration
     telegram_token: Optional[str] = None
+    telegram_channel: Optional[str] = None  # Personal channel for insights (@channelname or numeric ID)
     telegram_parse_mode: str = "Markdown"
+
+    # Personal Stock List Configuration
+    stock_list: Optional[str] = None  # Comma-separated list of stock symbols
 
     # Storage Configuration
     db_path: str = "./data/stock_analyzer.db"
     retention_days: int = 365
 
-    # Limits
+    # Limits (deprecated for personal use, kept for backward compatibility)
     user_limit: int = 10  # Max subscriptions per user
     system_limit: int = 100  # Max total subscriptions
     analysis_timeout: int = 60  # Seconds
@@ -65,6 +69,35 @@ class Config:
     gemini_temperature: float = 0.7
     gemini_max_output_tokens: int = 2048
 
+    def get_stock_symbols(self) -> list[str]:
+        """
+        Parse and validate stock symbols from stock_list.
+
+        Returns:
+            List of stock symbols (uppercase, deduplicated, whitespace-stripped)
+
+        Examples:
+            >>> config = Config(stock_list="AAPL,MSFT,GOOGL")
+            >>> config.get_stock_symbols()
+            ['AAPL', 'MSFT', 'GOOGL']
+
+            >>> config = Config(stock_list=" aapl , msft,  AAPL ")
+            >>> config.get_stock_symbols()
+            ['AAPL', 'MSFT']
+        """
+        if not self.stock_list:
+            return []
+
+        # Split by comma, strip whitespace, uppercase, filter empty
+        symbols = [
+            symbol.strip().upper()
+            for symbol in self.stock_list.split(",")
+            if symbol.strip()
+        ]
+
+        # Deduplicate while preserving order (using dict.fromkeys() as ordered set)
+        return list(dict.fromkeys(symbols))
+
     @classmethod
     def from_env(cls) -> "Config":
         """
@@ -75,11 +108,13 @@ class Config:
         - ANTHROPIC_API_KEY or OPENAI_API_KEY or GEMINI_API_KEY
         - STOCK_ANALYZER_LLM_MODEL
         - STOCK_ANALYZER_TELEGRAM_TOKEN
+        - STOCK_ANALYZER_TELEGRAM_CHANNEL (required for personal use)
+        - STOCK_ANALYZER_STOCK_LIST (required for personal use)
         - STOCK_ANALYZER_STOCK_API_KEY
         - STOCK_ANALYZER_DB_PATH
         - STOCK_ANALYZER_LOG_LEVEL
-        - STOCK_ANALYZER_USER_LIMIT
-        - STOCK_ANALYZER_SYSTEM_LIMIT
+        - STOCK_ANALYZER_USER_LIMIT (deprecated)
+        - STOCK_ANALYZER_SYSTEM_LIMIT (deprecated)
         - etc.
         """
         # Load .env file if it exists
@@ -110,9 +145,12 @@ class Config:
             stock_api_key=os.getenv("STOCK_ANALYZER_STOCK_API_KEY"),
             # Telegram configuration
             telegram_token=os.getenv("STOCK_ANALYZER_TELEGRAM_TOKEN"),
+            telegram_channel=os.getenv("STOCK_ANALYZER_TELEGRAM_CHANNEL"),
+            # Personal stock list configuration
+            stock_list=os.getenv("STOCK_ANALYZER_STOCK_LIST"),
             # Storage configuration
             db_path=os.getenv("STOCK_ANALYZER_DB_PATH", "./data/stock_analyzer.db"),
-            # Limits
+            # Limits (deprecated for personal use)
             user_limit=int(os.getenv("STOCK_ANALYZER_USER_LIMIT", "10")),
             system_limit=int(os.getenv("STOCK_ANALYZER_SYSTEM_LIMIT", "100")),
             analysis_timeout=int(os.getenv("STOCK_ANALYZER_ANALYSIS_TIMEOUT", "60")),
@@ -188,7 +226,7 @@ class Config:
 
     def validate(self) -> None:
         """
-        Validate configuration.
+        Validate configuration for personal use.
 
         Raises:
             ValueError: If configuration is invalid
@@ -205,11 +243,14 @@ class Config:
         if not self.telegram_token:
             raise ValueError("Telegram bot token is required")
 
-        if self.user_limit < 1:
-            raise ValueError("User limit must be at least 1")
+        # Personal use validation
+        if not self.telegram_channel:
+            raise ValueError("Telegram channel is required for personal use")
 
-        if self.system_limit < self.user_limit:
-            raise ValueError("System limit must be >= user limit")
+        # Validate stock list is not empty
+        symbols = self.get_stock_symbols()
+        if not symbols:
+            raise ValueError("Stock list is empty or not configured. Set STOCK_ANALYZER_STOCK_LIST")
 
         if self.analysis_timeout < 10:
             raise ValueError("Analysis timeout must be at least 10 seconds")

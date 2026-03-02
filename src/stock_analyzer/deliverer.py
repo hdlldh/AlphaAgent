@@ -20,21 +20,12 @@ from stock_analyzer.storage import Storage
 
 @dataclass
 class DeliveryResult:
-    """Result of a delivery operation."""
+    """Result of a delivery operation (personal use)."""
     insight_id: int
-    user_id: str
-    channel: str
+    channel_id: str  # Channel ID (e.g., @channelname or -1001234567890)
+    channel: str  # Delivery method (e.g., "telegram")
     status: str  # "success" or "failed"
     error_message: Optional[str] = None
-
-
-@dataclass
-class BatchDeliveryResult:
-    """Result of batch delivery operation."""
-    total: int
-    success_count: int
-    failure_count: int
-    results: List[DeliveryResult]
 
 
 class DeliveryChannel(ABC):
@@ -43,10 +34,10 @@ class DeliveryChannel(ABC):
     @abstractmethod
     async def send(self, user_id: str, message: str) -> bool:
         """
-        Send message to user.
+        Send message to channel.
 
         Args:
-            user_id: User identifier for this channel
+            user_id: Channel identifier (username or numeric ID)
             message: Message content to send
 
         Returns:
@@ -87,17 +78,21 @@ class TelegramChannel(DeliveryChannel):
 
     async def send(self, user_id: str, message: str) -> bool:
         """
-        Send message via Telegram.
+        Send message via Telegram to personal channel.
+
+        Supports channel identifiers:
+        - Channel username: @channelname
+        - Numeric channel ID: -1001234567890 (for private channels)
 
         Args:
-            user_id: Telegram chat ID (can be username or numeric ID)
+            user_id: Telegram channel ID (username like @channel or numeric ID)
             message: Message to send
 
         Returns:
             True if successful
 
         Raises:
-            DeliveryError: If sending fails
+            DeliveryError: If sending fails (invalid ID, permissions, network error)
         """
         try:
             # Convert user_id to int if it's numeric, otherwise use as-is
@@ -219,12 +214,12 @@ class InsightDeliverer:
         channel: str = "telegram"
     ) -> DeliveryResult:
         """
-        Deliver insight to a single user.
+        Deliver insight to personal channel (internal method).
 
         Args:
             insight: Insight to deliver
-            user_id: User identifier
-            channel: Delivery channel name
+            user_id: Channel identifier (username or numeric ID)
+            channel: Delivery channel name (default: telegram)
 
         Returns:
             DeliveryResult with status
@@ -248,17 +243,17 @@ class InsightDeliverer:
             # Send message
             await delivery_channel.send(user_id, message)
 
-            # Log successful delivery
+            # Log successful delivery (user_id treated as channel_id for personal use)
             self._log_delivery(
                 insight_id=insight.id,
-                user_id=user_id,
+                channel_id=user_id,
                 channel=channel,
                 status="success"
             )
 
             return DeliveryResult(
                 insight_id=insight.id,
-                user_id=user_id,
+                channel_id=user_id,
                 channel=channel,
                 status="success"
             )
@@ -267,7 +262,7 @@ class InsightDeliverer:
             # Log failed delivery
             self._log_delivery(
                 insight_id=insight.id,
-                user_id=user_id,
+                channel_id=user_id,
                 channel=channel,
                 status="failed",
                 error_message=str(e)
@@ -275,95 +270,33 @@ class InsightDeliverer:
 
             return DeliveryResult(
                 insight_id=insight.id,
-                user_id=user_id,
+                channel_id=user_id,
                 channel=channel,
                 status="failed",
                 error_message=str(e)
             )
 
-    async def deliver_batch(
-        self,
-        insights: List[Insight],
-        user_ids: List[str],
-        channel: str = "telegram",
-        parallel: int = 5
-    ) -> BatchDeliveryResult:
-        """
-        Deliver multiple insights to multiple users.
-
-        Args:
-            insights: List of insights to deliver
-            user_ids: List of user IDs to deliver to
-            channel: Delivery channel name
-            parallel: Number of parallel deliveries
-
-        Returns:
-            BatchDeliveryResult with summary and individual results
-        """
-        results = []
-
-        # Create delivery tasks
-        tasks = []
-        for insight in insights:
-            for user_id in user_ids:
-                tasks.append((insight, user_id))
-
-        # Execute deliveries with semaphore for rate limiting
-        semaphore = asyncio.Semaphore(parallel)
-
-        async def deliver_with_semaphore(insight: Insight, user_id: str):
-            """Deliver insight with semaphore for parallel execution limit."""
-            async with semaphore:
-                try:
-                    return await self.deliver_insight(insight, user_id, channel)
-                except Exception as e:
-                    # Return failed result even if exception occurs
-                    return DeliveryResult(
-                        insight_id=insight.id,
-                        user_id=user_id,
-                        channel=channel,
-                        status="failed",
-                        error_message=str(e)
-                    )
-
-        # Run all deliveries
-        results = await asyncio.gather(
-            *[deliver_with_semaphore(insight, user_id) for insight, user_id in tasks],
-            return_exceptions=False
-        )
-
-        # Calculate summary
-        success_count = sum(1 for r in results if r.status == "success")
-        failure_count = sum(1 for r in results if r.status == "failed")
-
-        return BatchDeliveryResult(
-            total=len(results),
-            success_count=success_count,
-            failure_count=failure_count,
-            results=results
-        )
-
     def _log_delivery(
         self,
         insight_id: int,
-        user_id: str,
+        channel_id: str,
         channel: str,
         status: str,
         error_message: Optional[str] = None
     ):
         """
-        Log delivery to storage.
+        Log delivery to storage (personal use).
 
         Args:
             insight_id: Insight ID that was delivered
-            user_id: User ID that received the delivery
+            channel_id: Channel ID that received the delivery (@channelname or numeric ID)
             channel: Delivery channel used
             status: Delivery status ("success" or "failed")
             error_message: Error message if failed
         """
         log = DeliveryLog(
             insight_id=insight_id,
-            user_id=user_id,
+            channel_id=channel_id,
             delivery_method=channel,
             delivery_status=status,
             error_message=error_message,
@@ -371,43 +304,95 @@ class InsightDeliverer:
         )
         self.storage.save_delivery_log(log)
 
-    async def deliver_to_subscribers(
+    async def deliver_to_channel(
         self,
         insight: Insight,
+        channel_id: str,
         channel: str = "telegram"
-    ) -> BatchDeliveryResult:
+    ) -> DeliveryResult:
         """
-        Deliver insight to all users subscribed to its stock symbol.
+        Deliver insight to a personal Telegram channel (personal use).
 
         Args:
             insight: Insight to deliver
-            channel: Delivery channel
+            channel_id: Telegram channel ID (@channelname or numeric ID like -1001234567890)
+            channel: Delivery channel name (default: "telegram")
 
         Returns:
-            BatchDeliveryResult with delivery status for each subscriber
+            DeliveryResult with delivery status
+
+        Raises:
+            DeliveryError: If channel not configured
         """
-        # Get subscriptions for this stock
-        subscriptions = self.storage.get_subscriptions(
-            stock_symbol=insight.stock_symbol,
-            active_only=True
-        )
-
-        # Extract unique user IDs
-        user_ids = list(set(sub.user_id for sub in subscriptions))
-
-        if not user_ids:
-            # No subscribers, return empty result
-            return BatchDeliveryResult(
-                total=0,
-                success_count=0,
-                failure_count=0,
-                results=[]
+        if channel not in self.channels:
+            return DeliveryResult(
+                insight_id=insight.id or 0,
+                channel_id=channel_id,
+                channel=channel,
+                status="failed",
+                error_message=f"Channel '{channel}' not configured"
             )
 
-        # Deliver to all subscribers
-        return await self.deliver_batch(
-            insights=[insight],
-            user_ids=user_ids,
-            channel=channel,
-            parallel=5
-        )
+        delivery_channel = self.channels[channel]
+
+        try:
+            # Format message
+            message = delivery_channel.format_insight(insight)
+
+            # Send to channel
+            await delivery_channel.send(channel_id, message)
+
+            # Log successful delivery
+            self._log_delivery(
+                insight_id=insight.id or 0,
+                channel_id=channel_id,
+                channel=channel,
+                status="success",
+                error_message=None
+            )
+
+            return DeliveryResult(
+                insight_id=insight.id or 0,
+                channel_id=channel_id,
+                channel=channel,
+                status="success",
+                error_message=None
+            )
+
+        except DeliveryError as e:
+            # Log failed delivery
+            error_msg = e.reason
+            self._log_delivery(
+                insight_id=insight.id or 0,
+                channel_id=channel_id,
+                channel=channel,
+                status="failed",
+                error_message=error_msg
+            )
+
+            return DeliveryResult(
+                insight_id=insight.id or 0,
+                channel_id=channel_id,
+                channel=channel,
+                status="failed",
+                error_message=error_msg
+            )
+
+        except Exception as e:
+            # Log unexpected failure
+            error_msg = f"Unexpected error: {str(e)}"
+            self._log_delivery(
+                insight_id=insight.id or 0,
+                channel_id=channel_id,
+                channel=channel,
+                status="failed",
+                error_message=error_msg
+            )
+
+            return DeliveryResult(
+                insight_id=insight.id or 0,
+                channel_id=channel_id,
+                channel=channel,
+                status="failed",
+                error_message=error_msg
+            )

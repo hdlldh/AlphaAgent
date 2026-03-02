@@ -1,10 +1,10 @@
 """
-AlphaAgent Stock Analyzer - AI-Powered Stock Analysis System
+AlphaAgent Stock Analyzer - AI-Powered Personal Stock Analysis System
 
 A multi-provider LLM system for daily stock analysis and insight delivery.
 """
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 __author__ = "AlphaAgent Team"
 
 # Exceptions - always available
@@ -16,7 +16,6 @@ from stock_analyzer.exceptions import (
     RateLimitError,
     StockAnalyzerError,
     StorageError,
-    SubscriptionLimitError,
 )
 
 # Models - always available
@@ -27,8 +26,6 @@ from stock_analyzer.models import (
     Insight,
     StockAnalysis,
     StockData,
-    Subscription,
-    User,
 )
 
 # Config - always available
@@ -42,8 +39,6 @@ __all__ = [
     # Config
     "Config",
     # Models
-    "User",
-    "Subscription",
     "StockData",
     "StockAnalysis",
     "Insight",
@@ -58,7 +53,6 @@ __all__ = [
     "DeliveryError",
     "StorageError",
     "RateLimitError",
-    "SubscriptionLimitError",
 ]
 
 # Import optional modules that may not exist yet

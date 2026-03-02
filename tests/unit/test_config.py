@@ -337,3 +337,159 @@ class TestConfigDefaults:
         assert config.mock_mode is False
         assert config.retry_max == 3
         assert config.debug is False
+
+
+class TestStockListParsing:
+    """Test stock list parsing with various input formats."""
+
+    def test_parse_stock_list_with_whitespace(self):
+        """Test parsing handles leading/trailing whitespace per symbol."""
+        config = Config(
+            stock_list=" AAPL , MSFT,  GOOGL  ",
+            llm_api_key="test-key",
+            telegram_token="test-token",
+            telegram_channel="@test"
+        )
+
+        symbols = config.get_stock_symbols()
+
+        # Should strip whitespace from each symbol
+        assert symbols == ["AAPL", "MSFT", "GOOGL"]
+        assert all(sym == sym.strip() for sym in symbols)
+
+    def test_parse_stock_list_with_duplicates(self):
+        """Test parsing removes duplicate symbols."""
+        config = Config(
+            stock_list="AAPL,MSFT,AAPL,GOOGL,msft,TSLA,aapl",
+            llm_api_key="test-key",
+            telegram_token="test-token",
+            telegram_channel="@test"
+        )
+
+        symbols = config.get_stock_symbols()
+
+        # Should deduplicate (case-insensitive) and preserve first occurrence order
+        assert symbols == ["AAPL", "MSFT", "GOOGL", "TSLA"]
+        assert len(symbols) == len(set(symbols))
+
+    def test_parse_stock_list_empty_segments(self):
+        """Test parsing handles empty segments from multiple commas."""
+        config = Config(
+            stock_list="AAPL,,MSFT,,,GOOGL,",
+            llm_api_key="test-key",
+            telegram_token="test-token",
+            telegram_channel="@test"
+        )
+
+        symbols = config.get_stock_symbols()
+
+        # Should filter out empty segments
+        assert symbols == ["AAPL", "MSFT", "GOOGL"]
+        assert "" not in symbols
+
+    def test_parse_stock_list_case_normalization(self):
+        """Test parsing normalizes all symbols to uppercase."""
+        config = Config(
+            stock_list="aapl,Msft,GOOGL,tSlA",
+            llm_api_key="test-key",
+            telegram_token="test-token",
+            telegram_channel="@test"
+        )
+
+        symbols = config.get_stock_symbols()
+
+        # All symbols should be uppercase
+        assert all(sym.isupper() for sym in symbols)
+        assert symbols == ["AAPL", "MSFT", "GOOGL", "TSLA"]
+
+
+class TestStockListInvalidFormatting:
+    """Test stock list parsing with invalid input formats."""
+
+    def test_parse_empty_string(self):
+        """Test parsing empty string returns empty list."""
+        config = Config(
+            stock_list="",
+            llm_api_key="test-key",
+            telegram_token="test-token",
+            telegram_channel="@test"
+        )
+
+        symbols = config.get_stock_symbols()
+
+        assert symbols == []
+
+    def test_parse_whitespace_only(self):
+        """Test parsing whitespace-only string returns empty list."""
+        config = Config(
+            stock_list="   ",
+            llm_api_key="test-key",
+            telegram_token="test-token",
+            telegram_channel="@test"
+        )
+
+        symbols = config.get_stock_symbols()
+
+        assert symbols == []
+
+    def test_parse_commas_only(self):
+        """Test parsing commas-only string returns empty list."""
+        config = Config(
+            stock_list=",,,",
+            llm_api_key="test-key",
+            telegram_token="test-token",
+            telegram_channel="@test"
+        )
+
+        symbols = config.get_stock_symbols()
+
+        assert symbols == []
+
+    def test_parse_mixed_whitespace_and_commas(self):
+        """Test parsing mixed whitespace and commas returns empty list."""
+        config = Config(
+            stock_list=" , , , ",
+            llm_api_key="test-key",
+            telegram_token="test-token",
+            telegram_channel="@test"
+        )
+
+        symbols = config.get_stock_symbols()
+
+        assert symbols == []
+
+
+class TestStockSymbolValidation:
+    """Test stock symbol validation rules."""
+
+    def test_validate_valid_symbols(self):
+        """Test validation accepts standard stock symbols."""
+        config = Config(
+            stock_list="AAPL,MSFT,GOOGL,BRK.B",
+            llm_api_key="test-key",
+            telegram_token="test-token",
+            telegram_channel="@test",
+            llm_provider="anthropic"
+        )
+
+        # Should not raise
+        config.validate()
+        symbols = config.get_stock_symbols()
+        assert "AAPL" in symbols
+        assert "BRK.B" in symbols  # Symbols with dots are valid
+
+    def test_validate_symbol_with_special_chars(self):
+        """Test validation accepts symbols with hyphens and dots."""
+        config = Config(
+            stock_list="BRK.B,BF.B,GOOG",
+            llm_api_key="test-key",
+            telegram_token="test-token",
+            telegram_channel="@test",
+            llm_provider="anthropic"
+        )
+
+        # Dots and hyphens should be allowed
+        config.validate()
+        symbols = config.get_stock_symbols()
+        assert "BRK.B" in symbols
+        assert "BF.B" in symbols

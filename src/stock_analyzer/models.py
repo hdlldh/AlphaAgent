@@ -12,48 +12,6 @@ import pandas as pd
 
 
 @dataclass
-class User:
-    """
-    Telegram user receiving stock analysis insights.
-
-    Attributes:
-        user_id: Telegram user ID (unique identifier)
-        telegram_username: Telegram username for reference
-        created_at: Timestamp when user first interacted
-        last_active: Timestamp of last interaction
-        preferences: User preferences as JSON blob
-    """
-
-    user_id: str
-    telegram_username: Optional[str] = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    last_active: datetime = field(default_factory=datetime.utcnow)
-    preferences: Optional[Dict[str, Any]] = None
-
-
-@dataclass
-class Subscription:
-    """
-    User's subscription to receive analysis for a specific stock.
-
-    Attributes:
-        id: Unique subscription identifier
-        user_id: References the subscribed user
-        stock_symbol: Stock ticker symbol (e.g., "AAPL", "TSLA")
-        subscription_date: Timestamp when subscription created
-        active_status: 1 = active, 0 = inactive/unsubscribed
-        preferences: Subscription-specific preferences as JSON blob
-    """
-
-    user_id: str
-    stock_symbol: str
-    id: Optional[int] = None
-    subscription_date: datetime = field(default_factory=datetime.utcnow)
-    active_status: int = 1
-    preferences: Optional[Dict[str, Any]] = None
-
-
-@dataclass
 class StockData:
     """
     Stock market data from APIs (yfinance, Alpha Vantage).
@@ -110,13 +68,12 @@ class StockAnalysis:
 @dataclass
 class Insight:
     """
-    AI-generated analysis content for a stock.
+    AI-generated analysis content for a stock (personal use).
 
     Attributes:
         id: Unique insight identifier
-        analysis_id: References the analysis run
-        stock_symbol: Stock ticker symbol (denormalized for query performance)
-        analysis_date: Date of analysis (denormalized)
+        stock_symbol: Stock ticker symbol
+        analysis_date: Date of analysis
         summary: Brief summary of the analysis (1-2 sentences)
         trend_analysis: LLM-generated trend interpretation
         risk_factors: Identified risks (list of strings)
@@ -133,7 +90,6 @@ class Insight:
     risk_factors: List[str]
     opportunities: List[str]
     confidence_level: Literal["high", "medium", "low"]
-    analysis_id: Optional[int] = None
     id: Optional[int] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=datetime.utcnow)
@@ -142,12 +98,12 @@ class Insight:
 @dataclass
 class DeliveryLog:
     """
-    Tracks delivery of insights to users via Telegram.
+    Tracks delivery of insights to Telegram channel (personal use).
 
     Attributes:
         id: Unique delivery log identifier
         insight_id: References the delivered insight
-        user_id: References the recipient user
+        channel_id: Telegram channel ID (@channelname or numeric ID)
         delivery_status: "success", "failed", or "pending"
         delivery_method: "telegram" (extensible for future methods)
         delivered_at: Timestamp when delivered (null if failed)
@@ -156,7 +112,7 @@ class DeliveryLog:
     """
 
     insight_id: int
-    user_id: str
+    channel_id: str
     delivery_status: Literal["success", "failed", "pending"] = "pending"
     delivery_method: str = "telegram"
     id: Optional[int] = None

@@ -1,19 +1,20 @@
-# AlphaAgent - AI-Powered Stock Analysis
+# AlphaAgent - AI-Powered Personal Stock Analysis
 
-Automated stock analysis system that uses AI (LLM) to analyze stock market data daily and deliver insights to users via Telegram.
+Automated personal stock analysis system that uses AI (LLM) to analyze your stock watchlist daily and deliver insights to your Telegram channel.
 
 **Status:** ✅ Production Ready | **Tests:** 229 passing (100%)
 
 ## Features
 
 - 🤖 **Multi-Provider LLM Support**: Claude, OpenAI, and Gemini
-- 📊 **Daily Stock Analysis**: Automated analysis powered by AI
-- 📱 **Telegram Bot**: Subscribe to stocks and receive insights
+- 📊 **Daily Stock Analysis**: Automated analysis powered by AI for your personal watchlist
+- 📱 **Telegram Channel Delivery**: Receive insights directly to your personal Telegram channel
 - ⚡ **On-Demand Analysis**: Get instant insights for any stock
 - 📈 **Historical Insights**: Query past analyses with date filtering
 - 🔄 **Automated Workflow**: Runs daily via GitHub Actions
 - 💾 **Git-Committed Storage**: SQLite database persisted across workflow runs
 - 🧪 **Comprehensive Testing**: 229 tests (contract, integration, unit)
+- 📝 **Personal Use**: Designed for individual use without multi-user complexity
 
 ## Quick Start
 
@@ -21,7 +22,7 @@ Automated stock analysis system that uses AI (LLM) to analyze stock market data 
 
 - Python 3.11 or higher
 - [uv](https://github.com/astral-sh/uv) package manager
-- Telegram account for bot interaction
+- Telegram account with a channel
 - API key for one of: Anthropic Claude, OpenAI, or Google Gemini
 
 ### Installation
@@ -38,14 +39,30 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv pip install -e .
 ```
 
-### Configuration
+### Personal Setup (5 Minutes)
+
+#### 1. Create Your Telegram Channel
+
+1. Open Telegram and create a new channel (Settings → New Channel)
+2. Choose a name like "My Stock Insights"
+3. Make it private or public (your choice)
+4. Copy your channel username (e.g., `@mystockinsights`) or numeric ID
+
+#### 2. Create a Telegram Bot
+
+1. Open Telegram and search for `@BotFather`
+2. Send `/newbot` and follow instructions
+3. Copy the bot token provided (looks like `123456:ABC-DEF...`)
+4. Add your bot as an administrator to your channel with "Post Messages" permission
+
+#### 3. Configure Your Stock List
 
 1. Copy the example environment file:
    ```bash
    cp .env.example .env
    ```
 
-2. Edit `.env` and add your API keys:
+2. Edit `.env` and configure your personal settings:
    ```bash
    # Choose your LLM provider
    STOCK_ANALYZER_LLM_PROVIDER=anthropic  # or "openai" or "gemini"
@@ -57,20 +74,36 @@ uv pip install -e .
    # OR
    GEMINI_API_KEY=...
 
+   # Add your personal stock list (comma-separated)
+   STOCK_ANALYZER_STOCK_LIST=AAPL,MSFT,GOOGL,TSLA,NVDA
+
+   # Add your Telegram channel ID
+   STOCK_ANALYZER_TELEGRAM_CHANNEL=@mystockinsights
+
    # Add Telegram bot token from @BotFather
    STOCK_ANALYZER_TELEGRAM_TOKEN=123456:ABC-DEF...
 
    # Optional: Alpha Vantage for fallback stock data
    STOCK_ANALYZER_STOCK_API_KEY=...
-
-   # Optional: Custom database path
-   STOCK_ANALYZER_DB_PATH=./data/stock_analyzer.db
    ```
 
-3. Initialize the database:
-   ```bash
-   python -m stock_analyzer.cli init-db
-   ```
+#### 4. Test Your Setup
+
+```bash
+# Initialize database
+python -m stock_analyzer.cli init-db
+
+# Test analysis for one stock
+python -m stock_analyzer.cli analyze AAPL
+
+# Test daily job in dry-run mode
+python -m stock_analyzer.cli run-daily-job --dry-run
+
+# Run actual daily job (posts to your channel)
+python -m stock_analyzer.cli run-daily-job
+```
+
+✅ **You're all set!** Your channel will now receive daily insights for your stock list.
 
 ### Usage
 
@@ -92,21 +125,6 @@ python -m stock_analyzer.cli analyze MSFT --json
 
 # Analyze multiple stocks in parallel
 python -m stock_analyzer.cli analyze-batch AAPL MSFT GOOGL --parallel 2
-```
-
-**Subscription Management:**
-```bash
-# Subscribe user to stock
-python -m stock_analyzer.cli subscribe <user_id> AAPL
-
-# Unsubscribe user from stock
-python -m stock_analyzer.cli unsubscribe <user_id> AAPL
-
-# List all subscriptions
-python -m stock_analyzer.cli list-subscriptions
-
-# List specific user's subscriptions
-python -m stock_analyzer.cli list-subscriptions <user_id>
 
 # Validate a stock symbol
 python -m stock_analyzer.cli validate AAPL
@@ -127,41 +145,16 @@ python -m stock_analyzer.cli history AAPL --limit 10 --offset 0
 python -m stock_analyzer.cli history AAPL --json
 ```
 
-**Daily Analysis Job:**
+**Daily Analysis Job (Personal Stock List):**
 ```bash
-# Run daily analysis job (analyzes all subscriptions)
+# Run daily analysis job (analyzes stocks from STOCK_ANALYZER_STOCK_LIST)
 python -m stock_analyzer.cli run-daily-job
 
 # Dry run (show what would be analyzed)
 python -m stock_analyzer.cli run-daily-job --dry-run
 ```
 
-#### Telegram Bot
-
-**Start the bot locally:**
-```bash
-python src/scripts/run_bot.py
-```
-
-**Available commands:**
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| `/start` | Start using the bot | `/start` |
-| `/help` | Show help message | `/help` |
-| `/subscribe <symbol>` | Subscribe to daily insights | `/subscribe AAPL` |
-| `/unsubscribe <symbol>` | Unsubscribe from stock | `/unsubscribe MSFT` |
-| `/list` | Show your subscriptions | `/list` |
-| `/analyze <symbol>` | Get instant analysis | `/analyze TSLA` |
-| `/history <symbol> [days]` | View historical insights | `/history AAPL 7` |
-
-**Bot Features:**
-- ✅ Real-time symbol validation
-- ✅ Subscription limit enforcement (10 per user)
-- ✅ On-demand analysis (instant insights)
-- ✅ Historical queries with date filtering
-- ✅ Markdown formatting
-- ✅ Error handling and user-friendly messages
+**Note:** The daily job reads your stock list from `STOCK_ANALYZER_STOCK_LIST` environment variable and posts insights to your Telegram channel specified in `STOCK_ANALYZER_TELEGRAM_CHANNEL`.
 
 ### Testing
 
@@ -178,15 +171,15 @@ uv run pytest tests/integration/   # Integration tests
 uv run pytest tests/contract/      # Contract tests
 
 # Run specific user story tests
-uv run pytest -k US1  # Daily analysis
-uv run pytest -k US2  # Subscription management
+uv run pytest -k US1  # Personal stock list configuration
+uv run pytest -k US2  # Telegram channel delivery
 uv run pytest -k US3  # Historical access
 ```
 
 **Test Results:** 229 tests passing
-- User Story 1 (Daily Analysis): 141 tests ✅
-- User Story 2 (Subscriptions): 44 tests ✅
-- User Story 3 (History): 44 tests ✅
+- User Story 1 (Personal Stock List): 141 tests ✅
+- User Story 2 (Channel Delivery): 44 tests ✅
+- User Story 3 (Historical Queries): 44 tests ✅
 
 ## Architecture
 
@@ -196,26 +189,30 @@ uv run pytest -k US3  # Historical access
 ┌─────────────────────────────────────────────┐
 │           GitHub Actions                     │
 │  • Daily Analysis (Mon-Fri 10 PM UTC)      │
-│  • Telegram Bot (Continuous/Manual)        │
 └─────────────────────────────────────────────┘
                     │
                     ▼
 ┌─────────────────────────────────────────────┐
 │        Stock Analyzer System                │
 │                                             │
-│  ┌──────────┐  ┌──────────┐  ┌─────────┐ │
-│  │ Analyzer │  │   Bot    │  │   CLI   │ │
-│  │  (LLM)   │  │(Telegram)│  │(Local)  │ │
-│  └────┬─────┘  └────┬─────┘  └────┬────┘ │
-│       │             │               │      │
-│       └─────────────┼───────────────┘      │
-│                     │                      │
-│       ┌─────────────▼──────────────┐      │
-│       │    Storage (SQLite)        │      │
-│       │  • Users & Subscriptions   │      │
-│       │  • Analyses & Insights     │      │
-│       │  • Delivery Logs & Jobs    │      │
-│       └────────────────────────────┘      │
+│  ┌──────────┐  ┌─────────┐                │
+│  │ Analyzer │  │   CLI   │                │
+│  │  (LLM)   │  │(Local)  │                │
+│  └────┬─────┘  └────┬────┘                │
+│       │             │                       │
+│       └─────────────┼───────────────────┐  │
+│                     │                    │  │
+│       ┌─────────────▼──────────────┐    │  │
+│       │    Storage (SQLite)        │    │  │
+│       │  • Stock Analyses          │    │  │
+│       │  • Insights                │    │  │
+│       │  • Delivery Logs & Jobs    │    │  │
+│       └────────────────────────────┘    │  │
+│                                          │  │
+│       ┌──────────────────────────────┐  │  │
+│       │   Deliverer (Telegram)       │◄─┘  │
+│       │  • Channel Posting           │     │
+│       └──────────────────────────────┘     │
 └─────────────────────────────────────────────┘
                     │
                     ▼
@@ -223,7 +220,7 @@ uv run pytest -k US3  # Historical access
 │         External Services                    │
 │  • LLM APIs (Claude/GPT/Gemini)            │
 │  • Stock Data (yfinance/Alpha Vantage)     │
-│  • Telegram Bot API                         │
+│  • Telegram Bot API (Channel Posts)        │
 └─────────────────────────────────────────────┘
 ```
 
@@ -235,18 +232,16 @@ AlphaAgent/
 │   └── stock_analyzer/
 │       ├── __init__.py
 │       ├── cli.py              # CLI interface with all commands
-│       ├── models.py           # Data models (User, Subscription, etc.)
+│       ├── models.py           # Data models (StockAnalysis, Insight, etc.)
 │       ├── config.py           # Configuration management
 │       ├── exceptions.py       # Custom exceptions
 │       ├── fetcher.py          # Stock data fetching (yfinance + Alpha Vantage)
 │       ├── analyzer.py         # LLM-based stock analysis
-│       ├── deliverer.py        # Insight delivery (Telegram)
+│       ├── deliverer.py        # Insight delivery (Telegram channel)
 │       ├── storage.py          # SQLite database operations
-│       ├── llm_client.py       # LLM provider abstraction
-│       └── bot.py              # Telegram bot with commands
+│       └── llm_client.py       # LLM provider abstraction
 ├── src/scripts/
-│   ├── daily_analysis.py       # Automated daily job
-│   └── run_bot.py              # Bot startup script
+│   └── daily_analysis.py       # Automated daily job
 ├── tests/
 │   ├── contract/               # Contract tests (API behavior)
 │   ├── integration/            # Integration tests (end-to-end)
@@ -254,11 +249,11 @@ AlphaAgent/
 ├── data/
 │   └── stock_analyzer.db       # SQLite database (Git-tracked)
 ├── specs/
-│   └── 001-llm-stock-analyzer/ # Feature documentation
+│   ├── 001-llm-stock-analyzer/ # Original feature documentation
+│   └── 002-personal-telegram-stocks/ # Personal use refactoring
 ├── .github/
 │   └── workflows/
-│       ├── daily-analysis.yml  # Scheduled analysis job
-│       └── telegram-bot.yml    # Bot deployment
+│       └── daily-analysis.yml  # Scheduled analysis job
 ├── pyproject.toml              # Project dependencies
 ├── pytest.ini                  # Test configuration
 └── README.md                   # This file
@@ -293,7 +288,9 @@ AlphaAgent/
 
 **Required:**
 - `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY` or `GEMINI_API_KEY`)
-- `STOCK_ANALYZER_TELEGRAM_TOKEN`
+- `STOCK_ANALYZER_TELEGRAM_TOKEN` - Bot token from @BotFather
+- `STOCK_ANALYZER_STOCK_LIST` - Comma-separated stock symbols
+- `STOCK_ANALYZER_TELEGRAM_CHANNEL` - Channel username or ID
 
 **Optional:**
 - `STOCK_ANALYZER_LLM_PROVIDER` (default: `anthropic`)
@@ -301,24 +298,22 @@ AlphaAgent/
 - `STOCK_ANALYZER_STOCK_API_KEY` (Alpha Vantage for fallback)
 - `STOCK_ANALYZER_DB_PATH` (default: `./data/stock_analyzer.db`)
 - `STOCK_ANALYZER_LOG_LEVEL` (default: `INFO`)
-- `STOCK_ANALYZER_USER_LIMIT` (default: `10`)
-- `STOCK_ANALYZER_SYSTEM_LIMIT` (default: `100`)
 
-### Subscription Limits
+### Personal Use Configuration
 
-- **Per User**: 10 stocks maximum
-- **System-wide**: 100 stocks total
-- **Delivery**: Daily at 10 PM UTC (Mon-Fri)
-- **On-demand**: Unlimited `/analyze` commands
+- **Stock List**: Configured via environment variable (comma-separated)
+- **Delivery**: Daily at 10 PM UTC (Mon-Fri) to your personal Telegram channel
+- **On-demand**: Unlimited analysis via CLI commands
+- **Storage**: All historical data persisted in SQLite database
 
 ## Deployment
 
 ### Local Development
 
-1. Install dependencies
-2. Configure `.env` file
+1. Install dependencies: `uv pip install -e .`
+2. Configure `.env` file with your settings
 3. Initialize database: `python -m stock_analyzer.cli init-db`
-4. Run bot: `python src/scripts/run_bot.py`
+4. Test analysis: `python -m stock_analyzer.cli run-daily-job --dry-run`
 
 ### GitHub Actions (Production)
 
@@ -327,11 +322,12 @@ AlphaAgent/
 1. **Add repository secrets** (Settings → Secrets and variables → Actions):
    - `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY` or `GEMINI_API_KEY`)
    - `TELEGRAM_TOKEN` - Your Telegram bot token
+   - `STOCK_LIST` - Comma-separated stock symbols (e.g., `AAPL,MSFT,GOOGL`)
+   - `TELEGRAM_CHANNEL` - Your channel username (e.g., `@mystockinsights`)
    - `ALPHA_VANTAGE_KEY` - (Optional) For stock data fallback
 
-2. **Enable workflows:**
+2. **Enable workflow:**
    - `.github/workflows/daily-analysis.yml` - Automated daily analysis
-   - `.github/workflows/telegram-bot.yml` - Bot deployment (optional)
 
 3. **Verify database:**
    - `data/stock_analyzer.db` is committed to repository
@@ -340,48 +336,8 @@ AlphaAgent/
 
 **Daily Analysis Workflow:**
 - **Schedule**: Monday-Friday at 10 PM UTC (after market close)
-- **Actions**: Fetches subscriptions → Analyzes stocks → Delivers insights → Commits database
+- **Actions**: Reads stock list → Analyzes stocks → Delivers to channel → Commits database
 - **Manual Trigger**: Available via "Run workflow" button
-
-**Telegram Bot Workflow:**
-- **Mode**: Polling (development) or Webhook (production)
-- **Deployment**: VPS recommended for 24/7 operation
-- **GitHub Actions**: 1-hour timeout (use for testing only)
-
-### Production Deployment (VPS/Cloud)
-
-**Recommended setup for 24/7 bot operation:**
-
-```bash
-# On your server
-git clone <repository-url>
-cd AlphaAgent
-
-# Setup
-uv pip install -e .
-cp .env.example .env
-# Edit .env with production keys
-
-# Initialize database
-python -m stock_analyzer.cli init-db
-
-# Run bot with systemd or supervisor
-# Example systemd service:
-[Unit]
-Description=Stock Analyzer Telegram Bot
-After=network.target
-
-[Service]
-Type=simple
-User=youruser
-WorkingDirectory=/path/to/AlphaAgent
-Environment="PATH=/path/to/.venv/bin"
-ExecStart=/path/to/.venv/bin/python src/scripts/run_bot.py
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-```
 
 ## Troubleshooting
 
@@ -413,18 +369,18 @@ rm data/stock_analyzer.db-wal data/stock_analyzer.db-shm
 export STOCK_ANALYZER_STOCK_API_KEY=your-key
 ```
 
-### Bot Issues
+### Telegram Delivery Issues
 
-**Problem:** Bot not responding
+**Problem:** Messages not posting to channel
 ```bash
-# Solution: Check bot token and restart
-python src/scripts/run_bot.py
+# Solution: Verify bot is added as channel admin with "Post Messages" permission
+# Check STOCK_ANALYZER_TELEGRAM_CHANNEL is correct (e.g., @mystockinsights)
 ```
 
-**Problem:** "/analyze not available"
+**Problem:** Channel not found error
 ```bash
-# Solution: Ensure LLM provider is configured
-# Check .env has ANTHROPIC_API_KEY (or OpenAI/Gemini key)
+# Solution: Ensure channel username starts with @ or use numeric channel ID
+# Verify bot token is valid: check STOCK_ANALYZER_TELEGRAM_TOKEN
 ```
 
 ### Testing Issues
@@ -481,20 +437,26 @@ Detailed documentation available:
 
 ## Project Status
 
-**Current Version:** 1.0.0 (MVP Complete)
+**Current Version:** 2.0.0 (Personal Use Edition)
 
 **Features:**
-- ✅ Automated daily analysis (US1)
-- ✅ Subscription management (US2)
+- ✅ Personal stock list configuration (US1)
+- ✅ Telegram channel delivery (US2)
 - ✅ Historical access (US3)
-- ✅ On-demand analysis
+- ✅ On-demand CLI analysis
+- ✅ Automated daily workflow
 - ✅ 229 passing tests
 
+**Recent Changes (v2.0):**
+- ✅ Removed multi-user support for simplicity
+- ✅ Environment-based stock list configuration
+- ✅ Direct channel posting (no bot commands)
+- ✅ Simplified database schema
+
 **Roadmap:**
-- 🔄 Enhanced logging and monitoring
-- 🔄 Rate limiting with exponential backoff
-- 🔄 CI workflow for automated testing
-- 🔄 Additional bot commands (/stats, /about)
+- 📝 Enhanced logging and monitoring
+- 📝 Rate limiting with exponential backoff
+- 📝 CI workflow for automated testing
 - 📝 Future: Portfolio tracking, price alerts, web dashboard
 
 ## Constitution
